@@ -1,1 +1,172 @@
+import streamlit as st
+import requests
+import os
+from dotenv import load_dotenv
+from datetime import datetime
+from openai import OpenAI
+
+# =====================
+# 환경 변수 로드
+# =====================
+load_dotenv()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
+
+client = OpenAI(api_key=OPENAI_API_KEY)
+
+# =====================
+# 기본 설정
+# =====================
+st.set_page_config(
+    page_title="Pawbit | AI Habit Tracker",
+    page_icon="🐾",
+    layout="centered"
+)
+
+# =====================
+# 함수 영역
+# =====================
+def get_weather(city):
+    url = (
+        f"https://api.openweathermap.org/data/2.5/weather"
+        f"?q={city}&appid={WEATHER_API_KEY}&units=metric&lang=kr"
+    )
+    res = requests.get(url).json()
+
+    if res.get("cod") != 200:
+        return None, None
+
+    weather = res["weather"][0]["description"]
+    temp = res["main"]["temp"]
+    return weather, temp
+
+
+def get_dog_image():
+    url = "https://dog.ceo/api/breeds/image/random"
+    res = requests.get(url).json()
+    return res["message"]
+
+
+def generate_ai_feedback(name, habits, percent, weather, temp):
+    prompt = f"""
+사용자 이름: {name}
+오늘 완료한 습관: {', '.join(habits)}
+달성률: {percent}%
+오늘 날씨: {weather}, {temp}°C
+
+조건:
+- 한국어
+- 따뜻하고 친구 같은 말투
+- 3~5줄
+- 과한 조언 없이 공감 중심
+"""
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "너는 다정한 AI 습관 코치야."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    return response.choices[0].message.content
+
+
+# =====================
+# 사이드바
+# =====================
+st.sidebar.header("⚙️ 사용자 설정")
+
+nickname = st.sidebar.text_input("닉네임", value="서윤")
+city = st.sidebar.text_input("도시 (날씨)", value="Seoul")
+
+st.sidebar.subheader("오늘의 습관")
+habit_list = [
+    "🏃 운동하기",
+    "💧 물 2L 마시기",
+    "📚 공부 / 과제",
+    "🧘 명상 / 휴식",
+    "✍️ 나만의 습관"
+]
+
+selected_habits = []
+for habit in habit_list:
+    if st.sidebar.checkbox(habit):
+        selected_habits.append(habit)
+
+start = st.sidebar.button("오늘 시작하기 🚀")
+
+# =====================
+# 메인 화면
+# =====================
+st.title("🐾 오늘도 한 걸음, 습관을 키워요")
+
+today = datetime.now().strftime("%Y.%m.%d")
+st.write(f"📅 {today}")
+
+weather, temp = get_weather(city)
+if weather:
+    st.write(f"☀️ 오늘의 날씨: **{weather} / {temp}°C**")
+else:
+    st.warning("날씨 정보를 불러올 수 없어요 😢")
+
+st.divider()
+
+# =====================
+# 습관 체크 영역
+# =====================
+st.subheader("✅ 오늘의 습관 체크")
+
+checked = []
+for habit in selected_habits:
+    if st.checkbox(habit, key=habit):
+        checked.append(habit)
+
+if selected_habits:
+    progress = int((len(checked) / len(selected_habits)) * 100)
+else:
+    progress = 0
+
+st.progress(progress)
+st.write(f"🎯 오늘 습관 달성률: **{progress}%**")
+
+st.divider()
+
+# =====================
+# AI 피드백 영역
+# =====================
+if progress > 0 and weather:
+    st.subheader("🤖 AI의 한마디")
+
+    with st.spinner("AI가 응원 메시지를 쓰는 중..."):
+        feedback = generate_ai_feedback(
+            nickname, checked, progress, weather, temp
+        )
+
+    st.success(feedback)
+
+# =====================
+# 보상 영역 (강아지)
+# =====================
+if progress > 0:
+    st.subheader("🐶 오늘의 보상")
+
+    dog_img = get_dog_image()
+    st.image(dog_img, use_column_width=True)
+    st.caption("칭찬 받으러 온 강아지!")
+
+    if progress == 100:
+        st.balloons()
+        st.success("🎉 오늘 습관 올클리어! 완벽해요!")
+
+# =====================
+# 회고 영역
+# =====================
+st.divider()
+st.subheader("📝 오늘의 한 줄 회고")
+
+reflection = st.text_area("오늘 하루를 한 문장으로 남겨보세요")
+
+if st.button("저장하기 💾"):
+    st.success("오늘의 기록이 저장됐어요! (로컬 저장 기능은 확장 가능)")
 
