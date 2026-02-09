@@ -4,7 +4,7 @@ from datetime import datetime
 from openai import OpenAI
 
 # =====================
-# Streamlit 설정
+# Streamlit 기본 설정
 # =====================
 st.set_page_config(
     page_title="Pawbit | AI Habit Tracker",
@@ -13,32 +13,79 @@ st.set_page_config(
 )
 
 # =====================
-# API Keys (Streamlit Secrets)
+# 사이드바 – API KEY 입력
 # =====================
-OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
-WEATHER_API_KEY = st.secrets["WEATHER_API_KEY"]
+st.sidebar.header("🔑 API 설정")
 
-client = OpenAI(api_key=OPENAI_API_KEY)
+openai_key = st.sidebar.text_input(
+    "OpenAI API Key",
+    type="password",
+    help="sk- 로 시작하는 OpenAI API 키"
+)
+
+weather_key = st.sidebar.text_input(
+    "OpenWeather API Key",
+    type="password",
+    help="OpenWeatherMap에서 발급받은 API 키"
+)
+
+api_ready = openai_key != "" and weather_key != ""
+
+st.sidebar.divider()
 
 # =====================
-# 함수 영역
+# 사용자 설정
 # =====================
-def get_weather(city):
-    """OpenWeatherMap 날씨 조회 (안정 버전)"""
+st.sidebar.header("⚙️ 사용자 설정")
+
+nickname = st.sidebar.text_input("닉네임", value="서윤")
+
+city = st.sidebar.text_input(
+    "도시명 (영문)",
+    value="Seoul",
+    help="예: Seoul, Busan, Tokyo"
+)
+
+st.sidebar.subheader("오늘의 습관")
+
+habit_candidates = [
+    "🏃 운동하기",
+    "💧 물 2L 마시기",
+    "📚 공부 / 과제",
+    "🧘 명상 / 휴식",
+    "✍️ 나만의 습관"
+]
+
+selected_habits = []
+for habit in habit_candidates:
+    if st.sidebar.checkbox(habit):
+        selected_habits.append(habit)
+
+# =====================
+# OpenAI Client (조건부)
+# =====================
+client = None
+if openai_key:
+    client = OpenAI(api_key=openai_key)
+
+# =====================
+# 함수 정의
+# =====================
+def get_weather(city, api_key):
     try:
         url = "https://api.openweathermap.org/data/2.5/weather"
         params = {
             "q": city,
-            "appid": WEATHER_API_KEY,
+            "appid": api_key,
             "units": "metric",
             "lang": "kr"
         }
 
-        response = requests.get(url, params=params, timeout=5)
-        data = response.json()
+        res = requests.get(url, params=params, timeout=5)
+        data = res.json()
 
-        if response.status_code != 200:
-            return None, None, data.get("message", "unknown error")
+        if res.status_code != 200:
+            return None, None, data.get("message", "날씨 정보 오류")
 
         weather = data["weather"][0]["description"]
         temp = data["main"]["temp"]
@@ -50,11 +97,13 @@ def get_weather(city):
 
 def get_dog_image():
     url = "https://dog.ceo/api/breeds/image/random"
-    res = requests.get(url).json()
-    return res["message"]
+    return requests.get(url).json()["message"]
 
 
 def generate_ai_feedback(name, habits, percent, weather_text):
+    if not client:
+        return "⚠️ OpenAI API Key를 입력하면 AI 응원 메시지를 받을 수 있어요."
+
     prompt = f"""
 사용자 이름: {name}
 오늘 완료한 습관: {', '.join(habits)}
@@ -78,34 +127,6 @@ def generate_ai_feedback(name, habits, percent, weather_text):
 
     return response.choices[0].message.content
 
-
-# =====================
-# 사이드바
-# =====================
-st.sidebar.header("⚙️ 사용자 설정")
-
-nickname = st.sidebar.text_input("닉네임", value="서윤")
-
-city = st.sidebar.text_input(
-    "도시명 (영문 권장)",
-    value="Seoul",
-    help="예: Seoul, Busan, Tokyo, New York"
-)
-
-st.sidebar.subheader("오늘의 습관")
-habit_candidates = [
-    "🏃 운동하기",
-    "💧 물 2L 마시기",
-    "📚 공부 / 과제",
-    "🧘 명상 / 휴식",
-    "✍️ 나만의 습관"
-]
-
-selected_habits = []
-for habit in habit_candidates:
-    if st.sidebar.checkbox(habit):
-        selected_habits.append(habit)
-
 # =====================
 # 메인 화면
 # =====================
@@ -115,18 +136,21 @@ today = datetime.now().strftime("%Y.%m.%d")
 st.write(f"📅 {today}")
 
 # =====================
-# 날씨 영역 (에러 처리 강화)
+# 날씨 표시
 # =====================
-weather, temp, weather_error = get_weather(city)
+if weather_key:
+    weather, temp, error = get_weather(city, weather_key)
 
-if weather:
-    weather_text = f"{weather} / {temp}°C"
-    st.write(f"☀️ 오늘의 날씨: **{weather_text}**")
+    if weather:
+        weather_text = f"{weather} / {temp}°C"
+        st.write(f"☀️ 오늘의 날씨: **{weather_text}**")
+    else:
+        weather_text = "날씨 정보 없음"
+        st.warning("날씨 정보를 불러오지 못했어요 😢")
+        st.caption(f"원인: {error}")
 else:
     weather_text = "날씨 정보 없음"
-    st.warning("날씨 정보를 불러오지 못했어요 😢")
-    st.caption(f"원인: {weather_error}")
-    st.caption("👉 도시명을 영문으로 입력해 보세요 (예: Seoul, Busan)")
+    st.info("ℹ️ 날씨를 보려면 OpenWeather API Key를 입력하세요")
 
 st.divider()
 
@@ -150,18 +174,16 @@ st.divider()
 # =====================
 # AI 피드백
 # =====================
-if progress > 0:
-    st.subheader("🤖 AI의 한마디")
+st.subheader("🤖 AI의 한마디")
 
-    with st.spinner("AI가 응원 메시지를 작성 중..."):
-        feedback = generate_ai_feedback(
-            nickname,
-            checked_habits,
-            progress,
-            weather_text
-        )
+feedback = generate_ai_feedback(
+    nickname,
+    checked_habits,
+    progress,
+    weather_text
+)
 
-    st.success(feedback)
+st.success(feedback)
 
 # =====================
 # 보상 (강아지)
@@ -169,13 +191,12 @@ if progress > 0:
 if progress > 0:
     st.subheader("🐶 오늘의 보상")
 
-    dog_image = get_dog_image()
-    st.image(dog_image, use_container_width=True)
+    st.image(get_dog_image(), use_container_width=True)
     st.caption("칭찬 받으러 온 강아지 🐾")
 
     if progress == 100:
         st.balloons()
-        st.success("🎉 오늘 습관 100% 달성! 진짜 최고예요!")
+        st.success("🎉 오늘 습관 100% 달성! 완벽해요!")
 
 # =====================
 # 회고
@@ -185,8 +206,8 @@ st.subheader("📝 오늘의 한 줄 회고")
 
 reflection = st.text_area(
     "오늘 하루를 한 문장으로 남겨보세요",
-    placeholder="예: 날씨는 흐렸지만 습관은 맑았다"
+    placeholder="예: 귀찮았지만 결국 해냈다"
 )
 
 if st.button("저장하기 💾"):
-    st.success("오늘의 기록이 저장됐어요 (추후 파일 저장 가능)")
+    st.success("오늘의 기록이 저장됐어요 (확장 가능)")
